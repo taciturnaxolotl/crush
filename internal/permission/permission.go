@@ -36,6 +36,7 @@ type CreatePermissionRequest struct {
 	Action      string `json:"action"`
 	Params      any    `json:"params"`
 	Path        string `json:"path"`
+	Dangerous   bool   `json:"dangerous"`
 }
 
 type PermissionNotification struct {
@@ -53,6 +54,7 @@ type PermissionRequest struct {
 	Action      string `json:"action"`
 	Params      any    `json:"params"`
 	Path        string `json:"path"`
+	Dangerous   bool   `json:"dangerous"`
 }
 
 type Service interface {
@@ -161,7 +163,11 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		}
 		// Read operations fall through to normal permission checks
 	case ModeYolo:
-		// Yolo mode: auto-approve everything
+		// Yolo mode: auto-approve everything EXCEPT dangerous commands
+		if opts.Dangerous {
+			// Dangerous commands always require explicit user approval
+			break
+		}
 		return true, nil
 	case ModeRegular:
 		// Regular mode: fall through to normal permission checks
@@ -214,6 +220,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		Description: opts.Description,
 		Action:      opts.Action,
 		Params:      opts.Params,
+		Dangerous:   opts.Dangerous,
 	}
 
 	s.sessionPermissionsMu.RLock()

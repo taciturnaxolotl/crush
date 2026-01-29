@@ -342,3 +342,42 @@ func TestPermissionService_PlanMode(t *testing.T) {
 		})
 	}
 }
+
+func TestPermissionService_DangerousCommands(t *testing.T) {
+	t.Parallel()
+
+	t.Run("yolo mode prompts for dangerous commands", func(t *testing.T) {
+		t.Parallel()
+		service := NewPermissionService("/tmp", false, nil)
+		service.SetMode(ModeYolo)
+
+		ctx := t.Context()
+
+		// For dangerous commands in YOLO mode, we expect it to prompt
+		// (i.e., not auto-approve)
+		done := make(chan struct{})
+		go func() {
+			result, err := service.Request(ctx, CreatePermissionRequest{
+				SessionID:  "test-session",
+				ToolCallID: "test-call",
+				ToolName:   "bash",
+				Action:     "execute",
+				Path:       "/tmp",
+				Dangerous:  true,
+			})
+			require.NoError(t, err)
+			assert.True(t, result)
+			close(done)
+		}()
+
+		// Wait for permission request to be published
+		events := service.Subscribe(ctx)
+		event := <-events
+		assert.Equal(t, "bash", event.Payload.ToolName)
+		assert.True(t, event.Payload.Dangerous)
+
+		// Grant the permission
+		service.Grant(event.Payload)
+		<-done
+	})
+}
