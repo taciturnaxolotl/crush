@@ -59,6 +59,7 @@ type toolCallCmp struct {
 	cancelled           bool               // Whether the tool call was cancelled
 	permissionRequested bool
 	permissionGranted   bool
+	provider            string // Provider name for tool name normalization
 
 	// Animation state for pending tool calls
 	spinning bool       // Whether to show loading animation
@@ -87,6 +88,13 @@ func WithToolCallResult(result message.ToolResult) ToolCallOption {
 func WithToolCallNested(isNested bool) ToolCallOption {
 	return func(m *toolCallCmp) {
 		m.isNested = isNested
+	}
+}
+
+// WithToolCallProvider sets the provider name (kept for future use).
+func WithToolCallProvider(provider string) ToolCallOption {
+	return func(m *toolCallCmp) {
+		m.provider = provider
 	}
 }
 
@@ -189,8 +197,6 @@ func (m *toolCallCmp) View() string {
 	return box.Render(r.Render(m))
 }
 
-// State management methods
-
 // SetCancelled marks the tool call as cancelled
 func (m *toolCallCmp) SetCancelled() {
 	m.cancelled = true
@@ -245,7 +251,9 @@ func (m *toolCallCmp) formatToolForCopy() string {
 }
 
 func (m *toolCallCmp) formatParametersForCopy() string {
-	switch m.call.Name {
+	// Normalize tool name for rendering
+	normalizedName := m.call.Name
+	switch normalizedName {
 	case tools.BashToolName:
 		var params tools.BashParams
 		if json.Unmarshal([]byte(m.call.Input), &params) == nil {
@@ -406,7 +414,9 @@ func (m *toolCallCmp) formatResultForCopy() string {
 		return fmt.Sprintf("[Media: %s]", m.result.MIMEType)
 	}
 
-	switch m.call.Name {
+	// Normalize tool name for rendering
+	normalizedName := m.call.Name
+	switch normalizedName {
 	case tools.BashToolName:
 		return m.formatBashResultForCopy()
 	case tools.ViewToolName:

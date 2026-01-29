@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/env"
 	"github.com/charmbracelet/crush/internal/oauth"
+	"github.com/charmbracelet/crush/internal/oauth/anthropic"
 	"github.com/charmbracelet/crush/internal/oauth/copilot"
 	"github.com/charmbracelet/crush/internal/oauth/hyper"
 	"github.com/invopop/jsonschema"
@@ -552,6 +553,8 @@ func (c *Config) RefreshOAuthToken(ctx context.Context, providerID string) error
 		newToken, refreshErr = copilot.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
 	case hyperp.Name:
 		newToken, refreshErr = hyper.ExchangeToken(ctx, providerConfig.OAuthToken.RefreshToken)
+	case string(catwalk.InferenceProviderAnthropic):
+		newToken, refreshErr = anthropic.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
 	default:
 		return fmt.Errorf("OAuth refresh not supported for provider %s", providerID)
 	}
@@ -561,7 +564,13 @@ func (c *Config) RefreshOAuthToken(ctx context.Context, providerID string) error
 
 	slog.Info("Successfully refreshed OAuth token", "provider", providerID)
 	providerConfig.OAuthToken = newToken
-	providerConfig.APIKey = newToken.AccessToken
+
+	// For Anthropic, prefix with "Bearer " so coordinator uses Authorization header
+	if providerID == string(catwalk.InferenceProviderAnthropic) {
+		providerConfig.APIKey = "Bearer " + newToken.AccessToken
+	} else {
+		providerConfig.APIKey = newToken.AccessToken
+	}
 
 	switch providerID {
 	case string(catwalk.InferenceProviderCopilot):
@@ -571,7 +580,7 @@ func (c *Config) RefreshOAuthToken(ctx context.Context, providerID string) error
 	c.Providers.Set(providerID, providerConfig)
 
 	if err := cmp.Or(
-		c.SetConfigField(fmt.Sprintf("providers.%s.api_key", providerID), newToken.AccessToken),
+		c.SetConfigField(fmt.Sprintf("providers.%s.api_key", providerID), providerConfig.APIKey),
 		c.SetConfigField(fmt.Sprintf("providers.%s.oauth", providerID), newToken),
 	); err != nil {
 		return fmt.Errorf("failed to persist refreshed token: %w", err)
@@ -592,14 +601,20 @@ func (c *Config) SetProviderAPIKey(providerID string, apiKey any) error {
 		}
 		setKeyOrToken = func() { providerConfig.APIKey = v }
 	case *oauth.Token:
+		// For Anthropic, prefix with "Bearer " so coordinator uses Authorization header
+		apiKeyValue := v.AccessToken
+		if providerID == string(catwalk.InferenceProviderAnthropic) {
+			apiKeyValue = "Bearer " + v.AccessToken
+		}
+
 		if err := cmp.Or(
-			c.SetConfigField(fmt.Sprintf("providers.%s.api_key", providerID), v.AccessToken),
+			c.SetConfigField(fmt.Sprintf("providers.%s.api_key", providerID), apiKeyValue),
 			c.SetConfigField(fmt.Sprintf("providers.%s.oauth", providerID), v),
 		); err != nil {
 			return err
 		}
 		setKeyOrToken = func() {
-			providerConfig.APIKey = v.AccessToken
+			providerConfig.APIKey = apiKeyValue
 			providerConfig.OAuthToken = v
 			switch providerID {
 			case string(catwalk.InferenceProviderCopilot):
@@ -794,7 +809,12 @@ func (c *ProviderConfig) TestConnection(resolver VariableResolver) error {
 		if c.ID == "kimi-coding" {
 			testURL = baseURL + "/v1/models"
 		}
-		headers["x-api-key"] = apiKey
+		// OAuth tokens use Authorization header, API keys use x-api-key
+		if strings.HasPrefix(apiKey, "Bearer ") {
+			headers["Authorization"] = apiKey
+		} else {
+			headers["x-api-key"] = apiKey
+		}
 		headers["anthropic-version"] = "2023-06-01"
 	case catwalk.TypeGoogle:
 		baseURL, _ := resolver.ResolveValue(c.BaseURL)

@@ -299,7 +299,9 @@ func (p *permissionDialogCmp) renderHeader() string {
 	}
 
 	// Add tool-specific header information
-	switch p.permission.ToolName {
+	// Normalize tool name for OAuth compatibility (Edit -> edit, Write -> write)
+	normalizedName := p.permission.ToolName
+	switch normalizedName {
 	case tools.BashToolName:
 		params := p.permission.Params.(tools.BashPermissionsParams)
 		descKey := t.S().Muted.Render("Desc")
@@ -432,7 +434,9 @@ func (p *permissionDialogCmp) getOrGenerateContent() string {
 
 	// Generate new content
 	var content string
-	switch p.permission.ToolName {
+	// Normalize tool name for OAuth compatibility (Edit -> edit, Write -> write)
+	normalizedName := p.permission.ToolName
+	switch normalizedName {
 	case tools.BashToolName:
 		content = p.generateBashContent()
 	case tools.DownloadToolName:
@@ -807,7 +811,9 @@ func (p *permissionDialogCmp) SetSize() tea.Cmd {
 
 	oldWidth, oldHeight := p.width, p.height
 
-	switch p.permission.ToolName {
+	// Normalize tool name for OAuth compatibility (Edit -> edit, Write -> write)
+	normalizedName := p.permission.ToolName
+	switch normalizedName {
 	case tools.BashToolName:
 		p.width = int(float64(p.wWidth) * 0.8)
 		p.height = int(float64(p.wHeight) * 0.3)

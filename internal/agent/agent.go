@@ -345,7 +345,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		OnToolInputStart: func(id string, toolName string) error {
 			toolCall := message.ToolCall{
 				ID:               id,
-				Name:             toolName,
+				Name:             FromClaudeCodeName(toolName),
 				ProviderExecuted: false,
 				Finished:         false,
 			}
@@ -358,7 +358,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		OnToolCall: func(tc fantasy.ToolCallContent) error {
 			toolCall := message.ToolCall{
 				ID:               tc.ToolCallID,
-				Name:             tc.ToolName,
+				Name:             FromClaudeCodeName(tc.ToolName),
 				Input:            tc.Input,
 				ProviderExecuted: false,
 				Finished:         true,

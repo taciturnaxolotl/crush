@@ -244,10 +244,14 @@ func (br bashRenderer) Render(v *toolCallCmp) string {
 		return br.renderError(v, "Invalid bash parameters")
 	}
 
-	cmd := strings.ReplaceAll(params.Command, "\n", " ")
-	cmd = strings.ReplaceAll(cmd, "\t", "    ")
+	// Use description if available, otherwise fall back to sanitized command
+	displayText := params.Description
+	if displayText == "" {
+		displayText = strings.ReplaceAll(params.Command, "\n", " ")
+		displayText = strings.ReplaceAll(displayText, "\t", "    ")
+	}
 	args := newParamBuilder().
-		addMain(cmd).
+		addMain(displayText).
 		addFlag("background", params.RunInBackground).
 		build()
 	if v.call.Finished {
