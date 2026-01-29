@@ -24,6 +24,7 @@ import (
 type SendMsg struct {
 	Text        string
 	Attachments []message.Attachment
+	IsPlanMode  bool
 }
 
 type SessionSelectedMsg = session.Session
@@ -277,6 +278,7 @@ func (m *messageListCmp) handleChildSession(event pubsub.Event[message.Message])
 				tc,
 				m.app.Permissions,
 				messages.WithToolCallNested(true),
+				messages.WithToolCallProvider(event.Payload.Provider),
 			)
 			cmds = append(cmds, nestedCall.Init())
 			nestedToolCalls = append(
@@ -511,7 +513,7 @@ func (m *messageListCmp) updateOrAddToolCall(msg message.Message, tc message.Too
 	}
 
 	// Add new tool call if not found
-	return m.listCmp.AppendItem(messages.NewToolCallCmp(msg.ID, tc, m.app.Permissions))
+	return m.listCmp.AppendItem(messages.NewToolCallCmp(msg.ID, tc, m.app.Permissions, messages.WithToolCallProvider(msg.Provider)))
 }
 
 // handleNewAssistantMessage processes new assistant messages and their tool calls.
@@ -530,7 +532,7 @@ func (m *messageListCmp) handleNewAssistantMessage(msg message.Message) tea.Cmd 
 
 	// Add tool calls
 	for _, tc := range msg.ToolCalls() {
-		cmd := m.listCmp.AppendItem(messages.NewToolCallCmp(msg.ID, tc, m.app.Permissions))
+		cmd := m.listCmp.AppendItem(messages.NewToolCallCmp(msg.ID, tc, m.app.Permissions, messages.WithToolCallProvider(msg.Provider)))
 		cmds = append(cmds, cmd)
 	}
 
@@ -637,6 +639,11 @@ func (m *messageListCmp) convertAssistantMessage(msg message.Message, toolResult
 // buildToolCallOptions creates options for tool call components based on results and status.
 func (m *messageListCmp) buildToolCallOptions(tc message.ToolCall, msg message.Message, toolResultMap map[string]message.ToolResult) []messages.ToolCallOption {
 	var options []messages.ToolCallOption
+
+	// Add provider for tool name normalization
+	if msg.Provider != "" {
+		options = append(options, messages.WithToolCallProvider(msg.Provider))
+	}
 
 	// Add tool result if available
 	if tr, ok := toolResultMap[tc.ID]; ok {
