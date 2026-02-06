@@ -143,6 +143,9 @@ func loginAnthropicInline(cfg *config.Config, ctx context.Context) error {
 		return fmt.Errorf("cancelled")
 	}
 
+	// Clear the separator line and the blank line above it
+	fmt.Print("\033[2A\033[K\033[K")
+
 	// Verify state matches
 	if m.state != authParams.State {
 		return fmt.Errorf("state mismatch - please try again")

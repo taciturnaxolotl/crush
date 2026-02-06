@@ -357,10 +357,23 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	}
 
 	largeProviderCfg, _ := c.cfg.Providers.Get(large.ModelCfg.Provider)
+
+	// Build system prompt prefix, prepending Claude Code identity for OAuth
+	systemPromptPrefix := largeProviderCfg.SystemPromptPrefix
+	if largeProviderCfg.OAuthToken != nil && largeProviderCfg.Type == anthropic.Name {
+		// For OAuth tokens, we MUST identify as Claude Code
+		claudeCodeIdentity := "You are Claude Code, Anthropic's official CLI for Claude."
+		if systemPromptPrefix != "" {
+			systemPromptPrefix = claudeCodeIdentity + "\n\n" + systemPromptPrefix
+		} else {
+			systemPromptPrefix = claudeCodeIdentity
+		}
+	}
+
 	result := NewSessionAgent(SessionAgentOptions{
 		large,
 		small,
-		largeProviderCfg.SystemPromptPrefix,
+		systemPromptPrefix,
 		"",
 		isSubAgent,
 		c.cfg.Options.DisableAutoSummarize,
