@@ -479,6 +479,16 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 	slices.SortFunc(filteredTools, func(a, b fantasy.AgentTool) int {
 		return strings.Compare(a.Info().Name, b.Info().Name)
 	})
+
+	// Wrap tools for OAuth if the provider uses OAuth tokens
+	if largeModelCfg, ok := c.cfg.Models[agent.Model]; ok {
+		if providerCfg, ok := c.cfg.Providers.Get(largeModelCfg.Provider); ok {
+			if providerCfg.OAuthToken != nil {
+				filteredTools = WrapToolsForOAuth(filteredTools)
+			}
+		}
+	}
+
 	return filteredTools, nil
 }
 
