@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/env"
 	"github.com/charmbracelet/crush/internal/oauth"
+	"github.com/charmbracelet/crush/internal/oauth/anthropic"
 	"github.com/charmbracelet/crush/internal/oauth/copilot"
 	"github.com/charmbracelet/crush/internal/oauth/hyper"
 	"github.com/invopop/jsonschema"
@@ -550,6 +551,8 @@ func (c *Config) RefreshOAuthToken(ctx context.Context, providerID string) error
 	var newToken *oauth.Token
 	var refreshErr error
 	switch providerID {
+	case "anthropic":
+		newToken, refreshErr = anthropic.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
 	case string(catwalk.InferenceProviderCopilot):
 		newToken, refreshErr = copilot.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
 	case hyperp.Name:
