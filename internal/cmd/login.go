@@ -24,19 +24,23 @@ var loginCmd = &cobra.Command{
 	Short:   "Login Crush to a platform",
 	Long: `Login Crush to a specified platform.
 The platform should be provided as an argument.
-Available platforms are: hyper, copilot.`,
+Available platforms are: hyper, copilot, anthropic.`,
 	Example: `
 # Authenticate with Charm Hyper
 crush login
 
 # Authenticate with GitHub Copilot
 crush login copilot
+
+# Authenticate with Anthropic
+crush login anthropic
   `,
 	ValidArgs: []cobra.Completion{
 		"hyper",
 		"copilot",
 		"github",
 		"github-copilot",
+		"anthropic",
 	},
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -55,6 +59,8 @@ crush login copilot
 			return loginHyper(app.Config())
 		case "copilot", "github", "github-copilot":
 			return loginCopilot(app.Config())
+		case "anthropic":
+			return loginAnthropic(app.Config())
 		default:
 			return fmt.Errorf("unknown platform: %s", args[0])
 		}
@@ -200,4 +206,23 @@ func getLoginContext() context.Context {
 
 func waitEnter() {
 	_, _ = fmt.Scanln()
+}
+
+func loginAnthropic(cfg *config.Config) error {
+	ctx := getLoginContext()
+	return loginAnthropicInline(cfg, ctx)
+}
+
+func splitOnce(s, sep string) []string {
+	idx := len(s)
+	for i := 0; i < len(s); i++ {
+		if s[i:i+len(sep)] == sep {
+			idx = i
+			break
+		}
+	}
+	if idx == len(s) {
+		return []string{s}
+	}
+	return []string{s[:idx], s[idx+len(sep):]}
 }
