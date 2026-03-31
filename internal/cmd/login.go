@@ -1,17 +1,20 @@
 package cmd
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/crush/internal/client"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/oauth"
+	anthropicOAuth "github.com/charmbracelet/crush/internal/oauth/anthropic"
 	"github.com/charmbracelet/crush/internal/oauth/copilot"
 	"github.com/charmbracelet/crush/internal/oauth/hyper"
 	"github.com/charmbracelet/x/ansi"
@@ -25,8 +28,11 @@ var loginCmd = &cobra.Command{
 	Short:   "Login Crush to a platform",
 	Long: `Login Crush to a specified platform.
 The platform should be provided as an argument.
-Available platforms are: hyper, copilot.`,
+Available platforms are: anthropic, hyper, copilot.`,
 	Example: `
+# Authenticate with Anthropic (Claude.ai Pro/Max or Console)
+crush login anthropic
+
 # Authenticate with Charm Hyper
 crush login
 
@@ -34,6 +40,7 @@ crush login
 crush login copilot
   `,
 	ValidArgs: []cobra.Completion{
+		"anthropic",
 		"hyper",
 		"copilot",
 		"github",
@@ -58,6 +65,8 @@ crush login copilot
 			provider = args[0]
 		}
 		switch provider {
+		case "anthropic":
+			return loginAnthropic(cmd.Context(), c, ws.ID)
 		case "hyper":
 			return loginHyper(c, ws.ID)
 		case "copilot", "github", "github-copilot":
@@ -66,6 +75,74 @@ crush login copilot
 			return fmt.Errorf("unknown platform: %s", args[0])
 		}
 	},
+}
+
+func loginAnthropic(ctx context.Context, c *client.Client, wsID string) error {
+	loginCtx := getLoginContext()
+
+	params, err := anthropicOAuth.InitiateAuth()
+	if err != nil {
+		return fmt.Errorf("failed to initiate auth: %w", err)
+	}
+
+	if clipboard.WriteAll(params.AuthURL) == nil {
+		fmt.Println("Authorization URL copied to clipboard.")
+	}
+	fmt.Println()
+	fmt.Println("Press enter to open the browser, or manually open this URL:")
+	fmt.Println()
+	fmt.Println(lipgloss.NewStyle().Hyperlink(params.AuthURL, "id=anthropic-oauth").Render(params.AuthURL))
+	fmt.Println()
+	waitEnter()
+	if err := browser.OpenURL(params.AuthURL); err != nil {
+		fmt.Println("Could not open the browser. Please open the URL manually.")
+	}
+
+	fmt.Println()
+	fmt.Print("After authorizing, paste the code#state string here: ")
+	input, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+	input = strings.TrimSpace(input)
+
+	parts := strings.SplitN(input, "#", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid format: expected code#state")
+	}
+	code, state := parts[0], parts[1]
+	if state != params.State {
+		return fmt.Errorf("state mismatch — please try again")
+	}
+
+	fmt.Println("Exchanging authorization code...")
+	token, resp, err := anthropicOAuth.ExchangeCode(loginCtx, code, params.CodeVerifier, state)
+	if err != nil {
+		return fmt.Errorf("token exchange failed: %w", err)
+	}
+
+	if anthropicOAuth.HasInferenceScope(resp.Scope) {
+		// Claude.ai Pro/Max subscriber: store bearer token.
+		if err := c.SetConfigField(loginCtx, wsID, config.ScopeGlobal, "providers.anthropic.api_key", token.AccessToken); err != nil {
+			return fmt.Errorf("failed to save credentials: %w", err)
+		}
+		fmt.Println()
+		fmt.Println("Authenticated with Anthropic! Using bearer token for inference.")
+		return nil
+	}
+
+	// Console user: create a permanent API key.
+	fmt.Println("Creating API key via Anthropic Console...")
+	apiKey, err := anthropicOAuth.CreateAPIKey(loginCtx, token.AccessToken)
+	if err != nil {
+		return fmt.Errorf("failed to create API key: %w", err)
+	}
+	if err := c.SetConfigField(loginCtx, wsID, config.ScopeGlobal, "providers.anthropic.api_key", apiKey); err != nil {
+		return fmt.Errorf("failed to save API key: %w", err)
+	}
+	fmt.Println()
+	fmt.Println("Authenticated with Anthropic! API key saved.")
+	return nil
 }
 
 func loginHyper(c *client.Client, wsID string) error {
