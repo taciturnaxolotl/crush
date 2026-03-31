@@ -13,6 +13,7 @@ import (
 	hyperp "github.com/charmbracelet/crush/internal/agent/hyper"
 	"github.com/charmbracelet/crush/internal/env"
 	"github.com/charmbracelet/crush/internal/oauth"
+	anthropicOAuth "github.com/charmbracelet/crush/internal/oauth/anthropic"
 	"github.com/charmbracelet/crush/internal/oauth/copilot"
 	"github.com/charmbracelet/crush/internal/oauth/hyper"
 	"github.com/tidwall/gjson"
@@ -237,14 +238,21 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 		}
 		setKeyOrToken = func() { providerConfig.APIKey = v }
 	case *oauth.Token:
+		// Anthropic OAuth bearer tokens must be stored with a "Bearer " prefix
+		// so that buildAnthropicProvider uses the Authorization header instead
+		// of the x-api-key header.
+		apiKeyValue := v.AccessToken
+		if providerID == string(catwalk.InferenceProviderAnthropic) {
+			apiKeyValue = "Bearer " + v.AccessToken
+		}
 		if err := cmp.Or(
-			s.SetConfigField(scope, fmt.Sprintf("providers.%s.api_key", providerID), v.AccessToken),
+			s.SetConfigField(scope, fmt.Sprintf("providers.%s.api_key", providerID), apiKeyValue),
 			s.SetConfigField(scope, fmt.Sprintf("providers.%s.oauth", providerID), v),
 		); err != nil {
 			return err
 		}
 		setKeyOrToken = func() {
-			providerConfig.APIKey = v.AccessToken
+			providerConfig.APIKey = apiKeyValue
 			providerConfig.OAuthToken = v
 			switch providerID {
 			case string(catwalk.InferenceProviderCopilot):
@@ -305,6 +313,8 @@ func (s *ConfigStore) RefreshOAuthToken(ctx context.Context, scope Scope, provid
 		newToken, refreshErr = copilot.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
 	case hyperp.Name:
 		newToken, refreshErr = hyper.ExchangeToken(ctx, providerConfig.OAuthToken.RefreshToken)
+	case string(catwalk.InferenceProviderAnthropic):
+		newToken, refreshErr = anthropicOAuth.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
 	default:
 		return fmt.Errorf("OAuth refresh not supported for provider %s", providerID)
 	}
@@ -314,7 +324,13 @@ func (s *ConfigStore) RefreshOAuthToken(ctx context.Context, scope Scope, provid
 
 	slog.Info("Successfully refreshed OAuth token", "provider", providerID)
 	providerConfig.OAuthToken = newToken
-	providerConfig.APIKey = newToken.AccessToken
+
+	// Anthropic bearer tokens need the "Bearer " prefix.
+	apiKeyValue := newToken.AccessToken
+	if providerID == string(catwalk.InferenceProviderAnthropic) {
+		apiKeyValue = "Bearer " + newToken.AccessToken
+	}
+	providerConfig.APIKey = apiKeyValue
 
 	switch providerID {
 	case string(catwalk.InferenceProviderCopilot):
@@ -324,7 +340,7 @@ func (s *ConfigStore) RefreshOAuthToken(ctx context.Context, scope Scope, provid
 	s.config.Providers.Set(providerID, providerConfig)
 
 	if err := cmp.Or(
-		s.SetConfigField(scope, fmt.Sprintf("providers.%s.api_key", providerID), newToken.AccessToken),
+		s.SetConfigField(scope, fmt.Sprintf("providers.%s.api_key", providerID), apiKeyValue),
 		s.SetConfigField(scope, fmt.Sprintf("providers.%s.oauth", providerID), newToken),
 	); err != nil {
 		return fmt.Errorf("failed to persist refreshed token: %w", err)

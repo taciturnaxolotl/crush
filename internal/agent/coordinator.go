@@ -50,6 +50,11 @@ import (
 	"github.com/qjebbs/go-jsons"
 )
 
+// claudeCodeClientVersion is sent in the User-Agent when using an Anthropic
+// OAuth bearer token so that the API recognises the request as coming from a
+// Claude Code–compatible client.
+const claudeCodeClientVersion = "2.1.2"
+
 // Coordinator errors.
 var (
 	errCoderAgentNotConfigured         = errors.New("coder agent not configured")
@@ -405,10 +410,24 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	}
 
 	largeProviderCfg, _ := c.cfg.Config().Providers.Get(large.ModelCfg.Provider)
+
+	// The claude-code-20250219 beta requires the system prompt to identify
+	// the client as Claude Code. Prepend the identity string when using an
+	// Anthropic OAuth bearer token.
+	systemPromptPrefix := largeProviderCfg.SystemPromptPrefix
+	if largeProviderCfg.OAuthToken != nil && largeProviderCfg.Type == anthropic.Name {
+		const claudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
+		if systemPromptPrefix != "" {
+			systemPromptPrefix = claudeCodeIdentity + "\n\n" + systemPromptPrefix
+		} else {
+			systemPromptPrefix = claudeCodeIdentity
+		}
+	}
+
 	result := NewSessionAgent(SessionAgentOptions{
 		LargeModel:           large,
 		SmallModel:           small,
-		SystemPromptPrefix:   largeProviderCfg.SystemPromptPrefix,
+		SystemPromptPrefix:   systemPromptPrefix,
 		SystemPrompt:         "",
 		IsSubAgent:           isSubAgent,
 		DisableAutoSummarize: c.cfg.Config().Options.DisableAutoSummarize,
@@ -432,6 +451,12 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		tools, err := c.buildTools(ctx, agent, isSubAgent)
 		if err != nil {
 			return err
+		}
+		// Anthropic's API rejects lowercase tool names (bash, read, …) when the
+		// request uses an OAuth bearer token.  Wrap them with their Claude Code
+		// capitalized equivalents so the request is accepted.
+		if largeProviderCfg.OAuthToken != nil && largeProviderCfg.Type == anthropic.Name {
+			tools = WrapToolsForOAuth(tools)
 		}
 		result.SetTools(tools)
 		return nil
@@ -832,11 +857,27 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	}
 
 	// handle special headers for anthropic
-	if providerCfg.Type == anthropic.Name && c.isAnthropicThinking(model) {
-		if v, ok := headers["anthropic-beta"]; ok {
-			headers["anthropic-beta"] = v + ",interleaved-thinking-2025-05-14"
-		} else {
-			headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+	if providerCfg.Type == anthropic.Name {
+		if providerCfg.OAuthToken != nil {
+			// OAuth bearer token: add the Claude Code compatibility headers required
+			// by Anthropic's API. The thinking beta flag is included when applicable.
+			betaFlags := []string{"oauth-2025-04-20"}
+			if c.isAnthropicThinking(model) {
+				betaFlags = append(betaFlags, "interleaved-thinking-2025-05-14")
+			}
+			if v, ok := headers["anthropic-beta"]; ok && v != "" {
+				headers["anthropic-beta"] = v + "," + strings.Join(betaFlags, ",")
+			} else {
+				headers["anthropic-beta"] = strings.Join(betaFlags, ",")
+			}
+			headers["user-agent"] = fmt.Sprintf("claude-cli/%s (external, cli)", claudeCodeClientVersion)
+			headers["x-app"] = "cli"
+		} else if c.isAnthropicThinking(model) {
+			if v, ok := headers["anthropic-beta"]; ok {
+				headers["anthropic-beta"] = v + ",interleaved-thinking-2025-05-14"
+			} else {
+				headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+			}
 		}
 	}
 
@@ -928,6 +969,10 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
 	tools, err := c.buildTools(ctx, agentCfg, false)
 	if err != nil {
 		return err
+	}
+	largeProviderCfg, _ := c.cfg.Config().Providers.Get(large.ModelCfg.Provider)
+	if largeProviderCfg.OAuthToken != nil && largeProviderCfg.Type == anthropic.Name {
+		tools = WrapToolsForOAuth(tools)
 	}
 	c.currentAgent.SetTools(tools)
 	return nil

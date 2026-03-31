@@ -1481,6 +1481,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 
 		m.dialog.CloseDialog(dialog.APIKeyInputID)
 		m.dialog.CloseDialog(dialog.OAuthID)
+		m.dialog.CloseDialog(dialog.OAuthAnthropicID)
 		m.dialog.CloseDialog(dialog.ModelsID)
 
 		if isOnboarding {
@@ -1603,6 +1604,8 @@ func (m *UI) openAuthenticationDialog(provider catwalk.Provider, model config.Se
 	)
 
 	switch provider.ID {
+	case catwalk.InferenceProviderAnthropic:
+		dlg, cmd = dialog.NewOAuthAnthropic(m.com, isOnboarding, provider, model, modelType)
 	case "hyper":
 		dlg, cmd = dialog.NewOAuthHyper(m.com, isOnboarding, provider, model, modelType)
 	case catwalk.InferenceProviderCopilot:
